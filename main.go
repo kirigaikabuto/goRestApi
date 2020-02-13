@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/ioutil"
@@ -10,30 +9,29 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
-
 	"Lesson06.02.2020/bookstore"
 	"github.com/gorilla/mux"
 	"github.com/urfave/cli"
 )
-
+//abstract factory
 var (
 	PATH string = ""
 	PORT string = ""
 )
 
 var flags []cli.Flag = []cli.Flag{
-	&cli.StringFlag{
-		Name:        "data",
-		Usage:       "Load JSON FILE",
-		Aliases:     []string{"d"},
-		Destination: &PATH,
-	},
-	&cli.StringFlag{
-		Name:        "port",
-		Usage:       "SET PORT TO RUN",
-		Aliases:     []string{"p"},
-		Destination: &PORT,
-	},
+	//&cli.StringFlag{
+	//	Name:        "data",
+	//	Usage:       "Load JSON FILE",
+	//	Aliases:     []string{"d"},
+	//	Destination: &PATH,
+	//},
+	//&cli.StringFlag{
+	//	Name:        "port",
+	//	Usage:       "SET PORT TO RUN",
+	//	Aliases:     []string{"p"},
+	//	Destination: &PORT,
+	//},
 }
 
 func main() {
@@ -66,20 +64,35 @@ func runRestApi(*cli.Context) error {
 	if err != nil {
 		log.Fatal(err.Error())
 	}
+	config:=bookstore.PostgreConfig{
+				User:     "postgres",
+				Password: "passanya",
+				Port:     "5432",
+				Host:     "127.0.0.1",
+				Database: "apibooks",
+			}
+	ps,err := bookstore.NewPostgreBookStore(config)
+	if err!=nil{
+		log.Fatal(err)
+	}
+	endpoints:=bookstore.NewEndpointsFactory(bookStore,ps)
 	router := mux.NewRouter()
-	router.Methods("GET").Path("/{id}").HandlerFunc(GetBook(bookStore, "id"))
-	router.Methods("POST").Path("/").HandlerFunc(CreateBook(bookStore))
-	router.Methods("GET").Path("/").HandlerFunc(GetBooks(bookStore))
-	router.Methods("DELETE").Path("/{id}").HandlerFunc(DeleteBook(bookStore, "id"))
-	router.Methods("PUT").Path("/{id}").HandlerFunc(UpdateBook(bookStore, "id"))
+	router.Methods("GET").Path("/{id}").HandlerFunc(endpoints.GetBook( "id"))
+	router.Methods("GET").Path("/").HandlerFunc(endpoints.GetBooks())
+	router.Methods("POST").Path("/").HandlerFunc(endpoints.CreateBook())
+	router.Methods("DELETE").Path("/{id}").HandlerFunc(endpoints.DeleteBook( "id"))
+	router.Methods("PUT").Path("/{id}").HandlerFunc(endpoints.UpdateBook( "id"))
 
+	router.Methods("GET").Path("/books/").HandlerFunc(endpoints.GetBooksDb())
+	router.Methods("GET").Path("/books/{id}").HandlerFunc(endpoints.GetBookDb("id"))
+	router.Methods("PUT").Path("/books/{id}").HandlerFunc(endpoints.UpdateBookDb("id"))
+	router.Methods("POST").Path("/books/").HandlerFunc(endpoints.CreateBookDb())
+	router.Methods("DELETE").Path("/books/{id}").HandlerFunc(endpoints.DeleteBookDb("id"))
 	done := make(chan os.Signal, 1)
 	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
 	go func() {
-		if err := http.ListenAndServe(PORT, router); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("listen: %s\n", err)
-		}
+		http.ListenAndServe(PORT, router)
 	}()
 	log.Println("Server is running on port" + PORT)
 
@@ -89,56 +102,9 @@ func runRestApi(*cli.Context) error {
 	ExitWithSave(bookStore)
 	return nil
 }
-func SendResponse(w http.ResponseWriter, status int, message string) {
-	w.WriteHeader(status)
-	w.Write([]byte(message))
-}
-func GetBook(store bookstore.BookStore, idParam string) func(w http.ResponseWriter, r *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		id, err := vars[idParam]
-		if !err {
-			SendResponse(w, http.StatusBadRequest, "не был передан аргумент")
-			return
-		}
-		book, error := store.GetBook(id)
-		if error != nil {
-			SendResponse(w, http.StatusInternalServerError, "Ошибка"+error.Error())
-			return
-		}
-		newdata, newerr := json.Marshal(book)
-		if newerr != nil {
-			SendResponse(w, http.StatusInternalServerError, "Ошибка"+newerr.Error())
-			return
-		}
-		SendResponse(w, http.StatusOK, string(newdata))
-	}
-}
 
-func CreateBook(store bookstore.BookStore) func(w http.ResponseWriter, r *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		data, err := ioutil.ReadAll(r.Body)
-		if err != nil {
-			SendResponse(w, http.StatusInternalServerError, "Error"+err.Error())
-			return
-		}
-		book := &bookstore.Book{}
-		if err := json.Unmarshal(data, book); err != nil {
-			SendResponse(w, http.StatusBadRequest, "Error"+err.Error())
-			return
-		}
-		result, err := store.CreateBook(book)
-		if err != nil {
-			SendResponse(w, http.StatusInternalServerError, "Error"+err.Error())
-		}
-		response, err := json.Marshal(result)
-		if err != nil {
-			SendResponse(w, http.StatusInternalServerError, "Error"+err.Error())
-			return
-		}
-		SendResponse(w, http.StatusCreated, string(response))
-	}
-}
+
+
 func ExitWithSave(store bookstore.BookStore) {
 	err := store.SaveBooks(PATH)
 	if err != nil {
@@ -146,70 +112,4 @@ func ExitWithSave(store bookstore.BookStore) {
 		return
 	}
 	log.Println("Data is saved")
-}
-func GetBooks(store bookstore.BookStore) func(w http.ResponseWriter, r *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		books, err := store.ListBooks()
-		if err != nil {
-			SendResponse(w, http.StatusInternalServerError, "Ошибка"+err.Error())
-			return
-		}
-		newbooks, error := json.Marshal(books)
-		if error != nil {
-			SendResponse(w, http.StatusInternalServerError, "Error"+err.Error())
-			return
-		}
-		SendResponse(w, http.StatusOK, string(newbooks))
-	}
-}
-func DeleteBook(store bookstore.BookStore, idParam string) func(w http.ResponseWriter, r *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		id, error := vars[idParam]
-		if !error {
-			SendResponse(w, http.StatusBadRequest, "не был передан аргумент")
-			return
-		}
-		err := store.DeleteBook(id)
-		if err != nil {
-			SendResponse(w, http.StatusInternalServerError, "Error"+err.Error())
-			return
-		}
-		SendResponse(w, http.StatusOK, "Element was deleted")
-	}
-}
-func UpdateBook(store bookstore.BookStore, idParam string) func(w http.ResponseWriter, r *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		id, error := vars[idParam]
-		if !error {
-			SendResponse(w, http.StatusBadRequest, "не был передан аргумент")
-			return
-		}
-		book, err := store.GetBook(id)
-		if err != nil {
-			SendResponse(w, http.StatusInternalServerError, "Ошибка"+err.Error())
-			return
-		}
-		data, err := ioutil.ReadAll(r.Body)
-		if err != nil {
-			SendResponse(w, http.StatusInternalServerError, "Error"+err.Error())
-			return
-		}
-		if err := json.Unmarshal(data, &book); err != nil {
-			SendResponse(w, http.StatusBadRequest, "Error"+err.Error())
-			return
-		}
-		updated_book, err := store.UpdateBook(id, book)
-		if err != nil {
-			SendResponse(w, http.StatusInternalServerError, "Error"+err.Error())
-			return
-		}
-		result, err := json.Marshal(updated_book)
-		if err != nil {
-			SendResponse(w, http.StatusInternalServerError, "Error"+err.Error())
-			return
-		}
-		SendResponse(w, http.StatusOK, string(result))
-	}
 }

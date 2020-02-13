@@ -48,7 +48,7 @@ func (bsc *bookStoreClass)  CreateBook(book *Book) (*Book,error){
 	bsc.books = append(bsc.books,book)
 	return book,nil
 }
-func (bsc *bookStoreClass) GetBook(id string) (*Book,error) {
+func (bsc *bookStoreClass) GetBook(id int64) (*Book,error) {
 	for _,v := range bsc.books{
 		if v.ID == id{
 			return v,nil
@@ -60,7 +60,7 @@ func (bsc *bookStoreClass) ListBooks() ([]*Book,error){
 	books:=bsc.books
 	return books,nil
 }
-func (bsc *bookStoreClass) DeleteBook(id string) error{
+func (bsc *bookStoreClass) DeleteBook(id int64) error{
 	for i,v := range bsc.books{
 		if v.ID == id{
 			bsc.books = append(bsc.books[:i],bsc.books[i+1:]...)
@@ -69,7 +69,7 @@ func (bsc *bookStoreClass) DeleteBook(id string) error{
 	}
 	return errors.New("Not deleted")
 }
-func (bsc *bookStoreClass) UpdateBook(id string,book *Book) (*Book,error){
+func (bsc *bookStoreClass) UpdateBook(id int64,book *Book) (*Book,error){
 	for i,v := range bsc.books{
 		if v.ID == id{
 			bsc.books[i]=book
